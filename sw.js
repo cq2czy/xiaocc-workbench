@@ -1,6 +1,14 @@
 // 小cc工作台 Service Worker
-const CACHE_NAME = 'xiaocc-workbench-v1';
-const ASSETS = ['./', './index.html'];
+const CACHE_NAME = 'xiaocc-workbench-v2';
+const ASSETS = [
+  './',
+  './index.html',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png',
+  './icon-maskable-512.png',
+  './sw.js'
+];
 
 // 安装时缓存核心资源
 self.addEventListener('install', (event) => {
