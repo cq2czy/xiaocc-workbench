@@ -2468,6 +2468,13 @@ function init() {
   setInterval(updateCountdown, 60000);
 }
 init();
+
+// 注册 Service Worker（PWA 打包 APK 必需）
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
 </script>
 </body>
 </html>
