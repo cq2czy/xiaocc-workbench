@@ -409,8 +409,11 @@
       <div class="nav-icon">📅</div>
       <span class="nav-label">纪念日</span>
     </div>
+    <div class="nav-item" onclick="toggleFullscreen()" title="全屏模式" style="margin-top:4px;">
+      <div class="nav-icon">⛶</div>
+      <span class="nav-label">全屏</span>
+    </div>
     <div class="sidebar-footer">
-      <button class="sidebar-footer-btn" onclick="toggleFullscreen()" title="全屏模式" style="font-size:18px;">⛶</button>
       <button class="sidebar-footer-btn" onclick="exportData()" title="导出备份">📥</button>
       <button class="sidebar-footer-btn" onclick="document.getElementById('importFileInput').click()" title="导入恢复">📤</button>
       <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="importData(event)">
