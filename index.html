@@ -2563,14 +2563,44 @@ function showInstallHint() {
 
 function installPWA() {
   if (deferredPrompt) {
-    deferredPrompt.prompt();
+    showToast('⏳ 正在安装...');
+    const timeout = setTimeout(() => {
+      showToast('💡 安装被拦截，请点左侧 ⛶ 全屏按钮');
+      document.getElementById('pwaInstallBar').remove();
+    }, 6000);
+
+    deferredPrompt.prompt().catch(() => {});
     deferredPrompt.userChoice.then((result) => {
+      clearTimeout(timeout);
       if (result.outcome === 'accepted') {
+        document.getElementById('pwaInstallBar').remove();
+        showToast('✅ 安装成功！从桌面图标打开就是全屏');
+      } else {
+        showToast('💡 请点左侧 ⛶ 按钮进入全屏模式');
         document.getElementById('pwaInstallBar').remove();
       }
       deferredPrompt = null;
+    }).catch(() => {
+      clearTimeout(timeout);
+      showToast('💡 请点左侧 ⛶ 按钮进入全屏模式');
+      document.getElementById('pwaInstallBar').remove();
     });
+  } else {
+    showToast('💡 请点左侧 ⛶ 按钮进入全屏模式');
+    document.getElementById('pwaInstallBar').remove();
   }
+}
+
+// ===== Toast 提示 =====
+function showToast(msg) {
+  const existing = document.querySelector('.toast-msg');
+  if (existing) existing.remove();
+  const t = document.createElement('div');
+  t.className = 'toast-msg';
+  t.textContent = msg;
+  t.style.cssText = 'position:fixed;bottom:120px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.82);color:#fff;padding:12px 24px;border-radius:24px;font-size:14px;z-index:99999;white-space:nowrap;animation:toastIn 0.3s ease;';
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity='0'; t.style.transition='opacity 0.3s'; setTimeout(() => t.remove(), 300); }, 3000);
 }
 
 // ===== 全屏切换 =====
