@@ -325,6 +325,36 @@
     .ccnotes-color-dot { width:18px; height:18px; }
     .ccnotes-tab { padding:6px 14px; font-size:13px; }
   }
+
+  /* ===== PWA 安装按钮 ===== */
+  .pwa-install-bar {
+    position:fixed; bottom:20px; left:20px; right:20px;
+    background:linear-gradient(135deg, #fce4ec, #f8bbd0);
+    border-radius:16px; padding:14px 18px;
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    z-index:9999; box-shadow:0 4px 24px rgba(233,30,99,0.25);
+    animation:slideUp 0.4s ease;
+    max-width:500px; margin:0 auto;
+  }
+  @keyframes slideUp {
+    from { transform:translateY(120%); opacity:0; }
+    to { transform:translateY(0); opacity:1; }
+  }
+  .pwa-install-bar .pwa-icon { font-size:32px; flex-shrink:0; }
+  .pwa-install-bar .pwa-text { flex:1; }
+  .pwa-install-bar .pwa-title { font-size:15px; font-weight:700; color:#880e4f; }
+  .pwa-install-bar .pwa-sub { font-size:12px; color:#ad1457; margin-top:2px; }
+  .pwa-install-bar .pwa-btn {
+    background:#e91e63; color:#fff; border:none;
+    padding:10px 22px; border-radius:24px; font-size:14px; font-weight:600;
+    cursor:pointer; white-space:nowrap; flex-shrink:0;
+    box-shadow:0 2px 8px rgba(233,30,99,0.4);
+  }
+  .pwa-install-bar .pwa-close {
+    position:absolute; top:6px; right:12px;
+    background:none; border:none; font-size:18px; color:#ad1457;
+    cursor:pointer; padding:4px; line-height:1;
+  }
 </style>
 </head>
 <body>
@@ -380,6 +410,7 @@
       <span class="nav-label">纪念日</span>
     </div>
     <div class="sidebar-footer">
+      <button class="sidebar-footer-btn" onclick="toggleFullscreen()" title="全屏模式" style="font-size:18px;">⛶</button>
       <button class="sidebar-footer-btn" onclick="exportData()" title="导出备份">📥</button>
       <button class="sidebar-footer-btn" onclick="document.getElementById('importFileInput').click()" title="导入恢复">📤</button>
       <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="importData(event)">
@@ -2474,6 +2505,92 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   });
+}
+
+// ===== PWA 安装按钮 =====
+let deferredPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  showInstallButton();
+});
+
+// 如果页面已经安装为 PWA 则不显示按钮
+if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) {
+  // 已经是全屏模式，不显示按钮
+} else {
+  // 如果 3 秒后还没触发 beforeinstallprompt，显示一个备用提示按钮
+  setTimeout(() => {
+    if (!deferredPrompt && !document.getElementById('pwaInstallBar')) {
+      showInstallHint();
+    }
+  }, 3000);
+}
+
+function showInstallButton() {
+  if (document.getElementById('pwaInstallBar')) return;
+  const bar = document.createElement('div');
+  bar.id = 'pwaInstallBar';
+  bar.className = 'pwa-install-bar';
+  bar.innerHTML = `
+    <div class="pwa-icon">🐶</div>
+    <div class="pwa-text">
+      <div class="pwa-title">安装小cc工作台</div>
+      <div class="pwa-sub">添加到桌面，全屏使用</div>
+    </div>
+    <button class="pwa-btn" onclick="installPWA()">安装</button>
+    <button class="pwa-close" onclick="document.getElementById('pwaInstallBar').remove()">✕</button>
+  `;
+  document.body.appendChild(bar);
+}
+
+function showInstallHint() {
+  if (document.getElementById('pwaInstallBar')) return;
+  const bar = document.createElement('div');
+  bar.id = 'pwaInstallBar';
+  bar.className = 'pwa-install-bar';
+  bar.innerHTML = `
+    <div class="pwa-icon">💡</div>
+    <div class="pwa-text">
+      <div class="pwa-title">全屏使用提示</div>
+      <div class="pwa-sub">点击浏览器菜单 → "添加至手机"</div>
+    </div>
+    <button class="pwa-close" onclick="document.getElementById('pwaInstallBar').remove()" style="position:static;font-size:22px;">✕</button>
+  `;
+  document.body.appendChild(bar);
+}
+
+function installPWA() {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then((result) => {
+      if (result.outcome === 'accepted') {
+        document.getElementById('pwaInstallBar').remove();
+      }
+      deferredPrompt = null;
+    });
+  }
+}
+
+// ===== 全屏切换 =====
+function toggleFullscreen() {
+  if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+    // 进入全屏
+    const el = document.documentElement;
+    if (el.requestFullscreen) {
+      el.requestFullscreen();
+    } else if (el.webkitRequestFullscreen) {
+      el.webkitRequestFullscreen();
+    }
+  } else {
+    // 退出全屏
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) {
+      document.webkitExitFullscreen();
+    }
+  }
 }
 </script>
 </body>
