@@ -783,10 +783,12 @@ function loadData() {
     const data = JSON.parse(raw);
     // 合并缺失的默认字段
     const def = getDefaultData();
+    const topKeys = ['avatar','countdownLabel','countdownType','countdownTarget','countdownDayStart','status',
+      'tasks','habits','quotes','quoteIndex','politics','plan','ccNotes','ccNotesActiveTab','ccNotesXingceSub',
+      'xingce','shenlun','gongzhuan','finance','period','anniversaries','materials','compareData','figures'];
+    topKeys.forEach(k => { if (!(k in data)) data[k] = def[k]; });
+    // 深层合并
     if (!data.ccNotes) data.ccNotes = def.ccNotes;
-    if (!data.ccNotesActiveTab) data.ccNotesActiveTab = def.ccNotesActiveTab;
-    if (!data.ccNotesXingceSub) data.ccNotesXingceSub = def.ccNotesXingceSub;
-    if (!data.compareData) data.compareData = def.compareData;
     if (data.ccNotes) {
       if (!data.ccNotes.shenlun) data.ccNotes.shenlun = def.ccNotes.shenlun;
       if (!data.ccNotes.gongzhuan) data.ccNotes.gongzhuan = def.ccNotes.gongzhuan;
@@ -796,6 +798,36 @@ function loadData() {
           if (!data.ccNotes.xingce[k]) data.ccNotes.xingce[k] = def.ccNotes.xingce[k];
         });
       }
+    }
+    if (!data.compareData) data.compareData = def.compareData;
+    if (!data.politics) data.politics = def.politics;
+    if (!data.xingce) data.xingce = def.xingce;
+    if (!data.shenlun) data.shenlun = def.shenlun;
+    if (!data.gongzhuan) data.gongzhuan = def.gongzhuan;
+    if (!data.finance) data.finance = def.finance;
+    if (!data.period) data.period = def.period;
+    if (!data.anniversaries) data.anniversaries = def.anniversaries;
+    if (!data.materials) data.materials = def.materials;
+    if (!data.tasks) data.tasks = def.tasks;
+    if (!data.habits) data.habits = def.habits;
+    if (!data.quotes) data.quotes = def.quotes;
+    if (typeof data.quoteIndex !== 'number') data.quoteIndex = def.quoteIndex;
+    // 迁移：试题对照旧数据 iframe+网盘 转 baidu 类型
+    if (data.compareData) {
+      ['left','right'].forEach(side => {
+        const item = data.compareData[side];
+        if (item && item.type === 'iframe' && item.url) {
+          const url = item.url.toString().toLowerCase();
+          if (url.includes('pan.baidu.com') || url.includes('share.weiyun.com') || url.includes('aliyundrive.com') || url.includes('quark.cn')) {
+            item.type = 'baidu';
+            item.extractionCode = item.extractionCode || '';
+          }
+        }
+        // 修复缺协议头的 URL
+        if (item && item.url && !item.url.match(/^https?:\/\//)) {
+          item.url = 'https://' + item.url;
+        }
+      });
     }
     return data;
   }
@@ -1819,14 +1851,16 @@ function renderChuangye() {
   document.getElementById('cyProfit').textContent = '¥'+profit.toLocaleString();
   document.getElementById('cyProfit').style.color = profit >= 0 ? '#5a9a5a' : '#9a4a4a';
 
-  let html = '<table class="finance-table"><tr><th>日期</th><th>类型</th><th>金额</th><th>说明</th><th>分类</th></tr>';
-  monthly.sort((a,b)=>b.date.localeCompare(a.date)).forEach(f=>{
+  let html = '<table class="finance-table"><tr><th>日期</th><th>类型</th><th>金额</th><th>说明</th><th>分类</th><th>操作</th></tr>';
+  monthly.sort((a,b)=>b.date.localeCompare(a.date)).forEach((f, idx)=>{
+    const globalIdx = appData.finance.indexOf(f);
     html += `<tr>
       <td>${f.date}</td>
       <td>${f.type==='income'?'收入':'支出'}</td>
       <td class="${f.type==='income'?'amount-income':'amount-expense'}">¥${f.amount}</td>
       <td>${f.desc}</td>
       <td>${f.category}</td>
+      <td><button class="task-btn" onclick="editFinance(${globalIdx})" style="font-size:10px;padding:2px 6px;">✏️</button> <button class="task-btn" onclick="deleteFinance(${globalIdx})" style="font-size:10px;padding:2px 6px;">🗑️</button></td>
     </tr>`;
   });
   html += '</table>';
@@ -1843,12 +1877,41 @@ function openFinanceModal(type) {
 }
 function addFinance(type) {
   const amount = parseFloat(document.getElementById('finAmount').value);
-  const desc = document.getElementById('finDesc').value;
-  const category = document.getElementById('finCat').value;
+  const desc = document.getElementById('finDesc').value.trim();
+  const category = document.getElementById('finCat').value.trim();
   const date = document.getElementById('finDate').value;
-  if (!amount || !desc) return alert('请填写金额和说明');
+  if (!amount || amount <= 0 || !desc) return alert('请填写金额和说明');
   appData.finance.push({id:Date.now(),type,amount,desc,category,date});
   saveData(); closeGenericModal(); renderChuangye();
+  showToast(type==='income' ? '✅ 收入已记录' : '✅ 支出已记录');
+}
+function editFinance(idx) {
+  const f = appData.finance[idx];
+  if (!f) return;
+  const html = `<div class="form-group"><label class="form-label">金额</label><input type="number" id="efinAmount" value="${f.amount}"></div>
+    <div class="form-group"><label class="form-label">说明</label><input id="efinDesc" value="${f.desc.replace(/"/g,'&quot;')}"></div>
+    <div class="form-group"><label class="form-label">分类</label><input id="efinCat" value="${(f.category||'').replace(/"/g,'&quot;')}" placeholder="如：进货/销售/租金"></div>
+    <div class="form-group"><label class="form-label">日期</label><input type="date" id="efinDate" value="${f.date}"></div>
+    <div class="form-group"><label class="form-label">类型</label><select id="efinType"><option value="income" ${f.type==='income'?'selected':''}>收入</option><option value="expense" ${f.type==='expense'?'selected':''}>支出</option></select></div>
+    <button class="btn-primary" style="width:100%" onclick="updateFinance(${idx})">更新</button>`;
+  showModal('编辑记录', html);
+}
+function updateFinance(idx) {
+  const amount = parseFloat(document.getElementById('efinAmount').value);
+  const desc = document.getElementById('efinDesc').value.trim();
+  const category = document.getElementById('efinCat').value.trim();
+  const date = document.getElementById('efinDate').value;
+  const type = document.getElementById('efinType').value;
+  if (!amount || amount <= 0 || !desc) return alert('请填写金额和说明');
+  appData.finance[idx] = { ...appData.finance[idx], amount, desc, category, date, type };
+  saveData(); closeGenericModal(); renderChuangye();
+  showToast('✅ 记录已更新');
+}
+function deleteFinance(idx) {
+  if (!confirm('确定删除这条记录？')) return;
+  appData.finance.splice(idx, 1);
+  saveData(); renderChuangye();
+  showToast('🗑️ 记录已删除');
 }
 
 // ================== 计算器 ==================
@@ -2328,10 +2391,28 @@ function renderComparePanel(side) {
       <div style="font-size:10px;color:var(--text-secondary);margin-top:8px;">点击后将跳转到百度网盘查看文件</div>
     </div>`;
   } else if (type === 'iframe' && data.url) {
-    // Check if URL is embeddable
-    inner = `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">📎 ${data.title||'加载中'}</div>`;
-    // Try iframe for PDFs and same-origin
-    inner += `<iframe src="${data.url}" style="width:100%;height:calc(100% - 30px);border:none;border-radius:8px;background:#fff;" sandbox="allow-scripts allow-same-origin"></iframe>`;
+    // 安全策略：百度网盘/微云/阿里云盘 不可 iframe，自动降级为卡片
+    const urlLower = data.url.toLowerCase();
+    if (urlLower.includes('pan.baidu.com') || urlLower.includes('share.weiyun.com') || urlLower.includes('aliyundrive.com') || urlLower.includes('quark.cn') || urlLower.includes('pan.baidu.com')) {
+      inner = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:24px;text-align:center;">
+        <div style="font-size:48px;margin-bottom:12px;">☁️</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px;">${escapeHtml(data.title||'网盘资料')}</div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-bottom:12px;">网盘链接不可嵌入预览，请点击跳转</div>
+        <button class="btn-primary" onclick="window.open('${data.url.replace(/'/g, "%27")}', '_blank')" style="font-size:14px;padding:10px 24px;">☁️ 打开网盘</button>
+      </div>`;
+    } else if (urlLower.includes('pdf') || urlLower.endsWith('.pdf') || urlLower.includes('docs.google') || urlLower.includes('office.com') || urlLower.includes('view.officeapps')) {
+      // 尝试嵌入 PDF/文档
+      inner = `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">📎 ${escapeHtml(data.title||'文档预览')}</div>`;
+      inner += `<iframe src="${data.url}" style="width:100%;height:calc(100% - 30px);border:none;border-radius:8px;background:#fff;" sandbox="allow-scripts allow-same-origin"></iframe>`;
+    } else {
+      // 普通网页链接 - 用 iframe 或提示跳转
+      inner = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:24px;text-align:center;">
+        <div style="font-size:36px;margin-bottom:12px;">🌐</div>
+        <div style="font-size:14px;font-weight:600;margin-bottom:4px;">${escapeHtml(data.title||'网页链接')}</div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-bottom:12px;word-break:break-all;">${escapeHtml(data.url)}</div>
+        <button class="btn-primary" onclick="window.open('${data.url.replace(/'/g, "%27")}', '_blank')" style="font-size:14px;padding:10px 24px;">🌐 在新窗口打开</button>
+      </div>`;
+    }
   } else if (type === 'image' && data.url) {
     inner = `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">🖼️ ${data.title||'图片'}</div>`;
     inner += `<img src="${data.url}" alt="${data.title||''}" style="max-width:100%;border-radius:8px;">`;
@@ -2363,7 +2444,7 @@ function importToPanel(side) {
   html += `<button class="btn accent-pink btn-sm" onclick="importImage('${side}')" style="width:100%;">🖼️ 粘贴图片地址</button>`;
   html += '</div>';
   html += '</div>';
-  showModal(html);
+  showModal(`📥 导入到${label}`, html);
 }
 
 function importBaiduDisk(side) {
@@ -2404,13 +2485,20 @@ function importLink(side) {
   const label = side==='left' ? '左框（试题区）' : '右框（答案区）';
   const url = prompt('请输入链接地址（支持网页/PDF/网盘分享链接）:');
   if (!url) return;
-  let finalUrl = url;
-  if (url.includes('pan.baidu.com') || url.includes('share.weiyun.com') || url.includes('aliyundrive.com')) {
+  let finalUrl = url.trim();
+  if (!finalUrl.match(/^https?:\/\//)) finalUrl = 'https://' + finalUrl;
+  const urlLower = finalUrl.toLowerCase();
+  if (urlLower.includes('pan.baidu.com') || urlLower.includes('share.weiyun.com') || urlLower.includes('aliyundrive.com') || urlLower.includes('quark.cn')) {
     const code = prompt('🔑 如果有提取码请输入（没有请点取消）:');
     if (code) {
       if (finalUrl.includes('?')) finalUrl += '&pwd=' + code;
       else finalUrl += '?pwd=' + code;
     }
+    const title = prompt('请输入标题（可选）:', '') || '网盘资料';
+    appData.compareData[side] = { type:'baidu', url:finalUrl, title:title, content:finalUrl, extractionCode:code||'' };
+    saveData(); renderComparePanel(side);
+    showToast('☁️ 网盘资料已导入，点击打开即可跳转');
+    return;
   }
   const title = prompt('请输入标题（可选）:', '') || '导入内容';
   appData.compareData[side] = { type:'iframe', url:finalUrl, title:title, content:finalUrl };
