@@ -857,9 +857,9 @@ function getDefaultData() {
     politics: [
       { id:1, title:'湖北：加快建设全国构建新发展格局先行区', source:'学习强国', tag:'hubei', tagText:'湖北考点', link:'https://www.xuexi.cn', date:'2026-07-30' },
       { id:2, title:'二十届五中全会精神解读：深化教育综合改革', source:'人民日报', tag:'national', tagText:'全国时政', link:'https://paper.people.com.cn', date:'2026-07-29' },
-      { id:3, title:'湖北省2026年事业单位招聘考试大纲发布', source:'湖北省人社厅', tag:'hubei', tagText:'湖北考点', link:'#', date:'2026-07-28' },
+      { id:3, title:'湖北省2026年事业单位招聘考试大纲发布', source:'湖北省人社厅', tag:'hubei', tagText:'湖北考点', link:'', date:'2026-07-28' },
       { id:4, title:'习近平：加快实现高水平科技自立自强', source:'新华社', tag:'national', tagText:'全国时政', link:'http://www.xinhuanet.com', date:'2026-07-27' },
-      { id:5, title:'武汉都市圈发展规划获国家批复', source:'微博热搜', tag:'hubei', tagText:'湖北考点', link:'#', date:'2026-07-26' }
+      { id:5, title:'武汉都市圈发展规划获国家批复', source:'微博热搜', tag:'hubei', tagText:'湖北考点', link:'', date:'2026-07-26' }
     ],
     xingce: {
       changshi: [{ id:1, content:'宪法的基本原则：人民主权、基本人权、法治原则、权力制约', addDate:'2026-07-20', reviews:[], category:'changshi' }],
@@ -903,8 +903,8 @@ function getDefaultData() {
       { id:2, name:'湖北事业单位考试', date:'2026-09-20', icon:'📝' }
     ],
     materials: [
-      { id:1, title:'2026年湖北省考行测真题', source:'官方', category:'xingce', type:'真题', tags:['真题','行测'], addDate:'2026-07-01', status:'unread', url:'#', note:'' },
-      { id:2, title:'申论写作万能模板', source:'网络', category:'shenlun', type:'范文', tags:['范文','申论'], addDate:'2026-07-05', status:'reading', url:'#', note:'' }
+      { id:1, title:'2026年湖北省考行测真题', source:'官方', category:'xingce', type:'真题', tags:['真题','行测'], addDate:'2026-07-01', status:'unread', url:'', extractionCode:'', platform:'', note:'' },
+      { id:2, title:'申论写作万能模板', source:'网络', category:'shenlun', type:'范文', tags:['范文','申论'], addDate:'2026-07-05', status:'reading', url:'', extractionCode:'', platform:'', note:'' }
     ],
     compareData: { left: null, right: null },
     ccNotes: {
@@ -1189,7 +1189,12 @@ function renderPolitics() {
   let html = '';
   const list = appData.politics.filter(p=>!kw || p.title.toLowerCase().includes(kw));
   list.forEach(p=>{
-    html += `<div class="news-card" onclick="window.open('${p.link}','_blank')">
+    if (p.link && p.link !== '#') {
+      html += `<div class="news-card" onclick="window.open('${p.link}','_blank')" style="cursor:pointer">`;
+    } else {
+      html += `<div class="news-card" style="cursor:default;opacity:0.8">`;
+    }
+    html += `
       <div class="news-tag ${p.tag==='hubei'?'tag-hubei':'tag-national'}">${p.tagText}</div>
       <div class="news-title">${p.title}</div>
       <div class="news-source">${p.source} · ${p.date}</div>
@@ -2010,12 +2015,95 @@ function saveCountdownSettings() {
 }
 
 // ================== 学习资料管理 ==================
+// ================== 学习资料（含网盘智能跳转） ==================
+function detectPlatform(url) {
+  if (!url) return { platform:'', displayName:'链接', icon:'🔗' };
+  const u = url.toLowerCase();
+  if (u.includes('pan.baidu.com')) return { platform:'baidu', displayName:'百度网盘', icon:'☁️' };
+  if (u.includes('share.weiyun.com')) return { platform:'weiyun', displayName:'微云', icon:'☁️' };
+  if (u.includes('aliyundrive.com')) return { platform:'aliyun', displayName:'阿里云盘', icon:'☁️' };
+  if (u.includes('115.com')) return { platform:'115', displayName:'115网盘', icon:'☁️' };
+  if (u.endsWith('.pdf')) return { platform:'pdf', displayName:'PDF文档', icon:'📄' };
+  if (u.startsWith('http')) return { platform:'web', displayName:'网页', icon:'🌐' };
+  return { platform:'other', displayName:'链接', icon:'🔗' };
+}
+
+function buildOpenUrl(m) {
+  let url = m.url || '';
+  if (!url) return '';
+  // 百度网盘：拼接提取码
+  if (detectPlatform(url).platform === 'baidu' && m.extractionCode) {
+    const code = m.extractionCode.trim();
+    if (url.includes('?')) {
+      url += '&pwd=' + code;
+    } else {
+      url += '?pwd=' + code;
+    }
+  }
+  // 微云：确保 https
+  if (detectPlatform(m.url).platform === 'weiyun' && !url.startsWith('http')) {
+    url = 'https://' + url;
+  }
+  return url;
+}
+
+function openMaterialLink(idx) {
+  const m = appData.materials[idx];
+  if (!m) return;
+  
+  // 本地文件：以 blob URL 在新标签页打开
+  if (m.type === '本地文件' && m.fileData) {
+    const byteString = atob(m.fileData.split(',')[1]);
+    const mimeString = m.fileData.split(',')[0].split(':')[1].split(';')[0];
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+    const blob = new Blob([ab], { type: mimeString });
+    const blobUrl = URL.createObjectURL(blob);
+    window.open(blobUrl, '_blank');
+    showToast('📂 正在打开 ' + (m.fileName || '文件'));
+    return;
+  }
+  
+  if (!m.url) {
+    showToast('⚠️ 暂无链接，请先编辑添加链接');
+    return;
+  }
+  
+  const finalUrl = buildOpenUrl(m);
+  if (!finalUrl) {
+    showToast('⚠️ 链接无效，请检查');
+    return;
+  }
+  const plat = detectPlatform(m.url);
+  // 移动端网盘链接尝试唤起App
+  if (['baidu','weiyun','aliyun'].includes(plat.platform) && /Android|iPhone|iPad/i.test(navigator.userAgent)) {
+    window.location.href = finalUrl;
+    setTimeout(() => {
+      if (!document.hidden) window.open(finalUrl, '_blank');
+    }, 3000);
+  } else {
+    window.open(finalUrl, '_blank');
+  }
+  // 更新状态
+  if (m.status === 'unread') {
+    m.status = 'reading';
+    saveData();
+    const cat = m.category === '行测' ? 'xingce' : m.category === '申论' ? 'shenlun' : m.category === '公专' ? 'gongzhuan' : m.category;
+    renderMaterials(cat);
+  }
+}
+
 function renderMaterials(category) {
   const kw = (document.getElementById(category+'MaterialSearch')?.value || '').toLowerCase();
   const list = appData.materials.filter(m=>m.category===category && (!kw||m.title.toLowerCase().includes(kw)));
   let html = '';
   list.forEach((m,i)=>{
+    const idx = appData.materials.indexOf(m);
     const statusMap = {unread:'未开始',reading:'学习中',done:'已完成'};
+    const plat = detectPlatform(m.url);
+    const hasUrl = m.url && m.url !== '#' && m.url !== '';
+    const openUrl = buildOpenUrl(m);
     html += `<div class="material-card">
       <div class="material-title">${m.title}</div>
       <div class="material-meta">
@@ -2024,54 +2112,171 @@ function renderMaterials(category) {
         <span class="material-status status-${m.status==='done'?'done2':m.status}">${statusMap[m.status]}</span>
         <span style="font-size:10px;color:var(--text-secondary)">${m.addDate}</span>
       </div>
+      ${m.note ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">📝 ${m.note}</div>` : ''}
+      ${m.type === '本地文件' ? `<div style="font-size:11px;color:var(--accent-pink);margin-top:4px;">📂 ${m.fileName||'本地文件'}</div>` : ''}
+      ${hasUrl && m.type !== '本地文件' ? `<div style="font-size:11px;color:var(--accent-blue);margin-top:4px;">${plat.icon} ${plat.displayName}${m.extractionCode?' · 提取码: '+m.extractionCode:''}</div>` : ''}
       <div class="task-actions" style="margin-top:8px">
-        <button class="task-btn" onclick="window.open('${m.url}','_blank')">🔗 打开</button>
-        <button class="task-btn" onclick="editMaterial(${appData.materials.indexOf(m)})">✏️</button>
-        <button class="task-btn" onclick="appData.materials.splice(${appData.materials.indexOf(m)},1);saveData();renderMaterials('${category}');">🗑️</button>
+        ${hasUrl || m.type==='本地文件' ? `<button class="task-btn" onclick="openMaterialLink(${idx})">${m.type==='本地文件' ? '📂' : plat.icon} 打开</button>` : `<button class="task-btn" style="opacity:0.4;cursor:not-allowed" onclick="showToast('⚠️ 请先编辑添加链接')">🔗 暂无链接</button>`}
+        <button class="task-btn" onclick="editMaterial(${idx})">✏️ 编辑</button>
+        <button class="task-btn" onclick="appData.materials.splice(${idx},1);saveData();renderMaterials('${category}');">🗑️</button>
       </div>
     </div>`;
   });
   if (!html) html = '<div class="empty-state">暂无资料，点击"+导入"添加</div>';
   document.getElementById(category+'Materials').innerHTML = html;
 }
+
 function openMaterialModal(category) {
   const cats = ['行测','申论','公专','真题','模考','时政','范文','其他'];
-  const types = ['习题链接','网页链接','网盘资料链接','PDF/文档链接','自定义备注'];
-  const html = `<div class="form-group"><label class="form-label">标题</label><input id="matTitle"></div>
-    <div class="form-group"><label class="form-label">来源</label><input id="matSource"></div>
+  const types = ['网页链接','网盘资料链接','本地文件','PDF/文档链接','习题链接','自定义备注'];
+  const html = `<div class="form-group"><label class="form-label">标题 *</label><input id="matTitle" placeholder="如：2026湖北省考行测真题"></div>
+    <div class="form-group"><label class="form-label">来源</label><input id="matSource" placeholder="如：粉笔/华图/中公"></div>
     <div class="form-group"><label class="form-label">分类</label><select id="matCat">${cats.map(c=>`<option value="${c}">${c}</option>`).join('')}</select></div>
-    <div class="form-group"><label class="form-label">类型</label><select id="matType">${types.map(t=>`<option value="${t}">${t}</option>`).join('')}</select></div>
-    <div class="form-group"><label class="form-label">链接/路径</label><input id="matUrl"></div>
-    <div class="form-group"><label class="form-label">备注</label><input id="matNote"></div>
+    <div class="form-group"><label class="form-label">类型</label><select id="matType" onchange="onMatTypeChange()">${types.map(t=>`<option value="${t}">${t}</option>`).join('')}</select></div>
+    <div class="form-group" id="matUrlGroup"><label class="form-label" id="matUrlLabel">🔗 链接地址</label><input id="matUrl" placeholder="粘贴网盘分享链接或网页地址"></div>
+    <div class="form-group" id="matCodeGroup" style="display:none"><label class="form-label">🔑 提取码（选填）</label><input id="matCode" placeholder="网盘提取码，如：abcd"></div>
+    <div class="form-group" id="matFileGroup" style="display:none">
+      <label class="form-label">📂 选择文件（PDF/文档/图片，<20MB）</label>
+      <div id="matFileDropZone" style="border:2px dashed rgba(200,200,210,0.5);border-radius:12px;padding:20px;text-align:center;cursor:pointer;transition:all 0.2s;background:rgba(255,255,255,0.3)" onclick="document.getElementById('matFileInput').click()"
+        ondragover="event.preventDefault();this.style.borderColor='var(--accent-pink)';this.style.background='rgba(240,196,216,0.15)'"
+        ondragleave="this.style.borderColor='rgba(200,200,210,0.5)';this.style.background='rgba(255,255,255,0.3)'"
+        ondrop="event.preventDefault();this.style.borderColor='rgba(200,200,210,0.5)';this.style.background='rgba(255,255,255,0.3)';handleMatFileDrop(event)">
+        <div style="font-size:32px;margin-bottom:8px;">📤</div>
+        <div style="font-size:12px;color:var(--text-secondary);">点击选择或拖拽文件到此处</div>
+        <div id="matFileName" style="font-size:11px;color:var(--accent-pink);margin-top:6px;"></div>
+      </div>
+      <input type="file" id="matFileInput" style="display:none" onchange="handleMatFileSelect(event)" accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.txt,.md">
+    </div>
+    <div class="form-group"><label class="form-label">备注</label><input id="matNote" placeholder="学习重点、注意事项等"></div>
     <div class="form-group"><label class="form-label">标签（逗号分隔）</label><input id="matTags" placeholder="如：真题,重点"></div>
+    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px;">💡 选"网盘资料链接"后可填提取码自动拼接；选"本地文件"可上传文件存储在工作台</div>
     <button class="btn-primary" style="width:100%" onclick="addMaterial('${category}')">导入</button>`;
   showModal('导入学习资料', html);
+  // 暂存文件数据
+  window._matFileData = null;
+  window._matFileName = '';
 }
+
+function onMatTypeChange() {
+  const type = document.getElementById('matType')?.value || '';
+  const codeGroup = document.getElementById('matCodeGroup');
+  const urlGroup = document.getElementById('matUrlGroup');
+  const fileGroup = document.getElementById('matFileGroup');
+  const urlLabel = document.getElementById('matUrlLabel');
+  
+  // 重置显示
+  if (urlGroup) urlGroup.style.display = 'block';
+  if (codeGroup) codeGroup.style.display = 'none';
+  if (fileGroup) fileGroup.style.display = 'none';
+  
+  if (type === '网盘资料链接') {
+    if (codeGroup) codeGroup.style.display = 'block';
+    if (urlLabel) urlLabel.textContent = '☁️ 网盘分享链接';
+    document.getElementById('matUrl').placeholder = '粘贴百度网盘/微云/阿里云盘的分享链接';
+  } else if (type === '本地文件') {
+    if (urlGroup) urlGroup.style.display = 'none';
+    if (fileGroup) fileGroup.style.display = 'block';
+  } else if (type === 'PDF/文档链接') {
+    if (urlLabel) urlLabel.textContent = '📄 文档/PDF链接';
+    document.getElementById('matUrl').placeholder = '粘贴PDF或文档的链接地址';
+  } else if (type === '自定义备注') {
+    if (urlLabel) urlLabel.textContent = '🔗 链接（选填）';
+    document.getElementById('matUrl').placeholder = '可选填链接';
+  } else {
+    if (urlLabel) urlLabel.textContent = '🔗 链接地址';
+    document.getElementById('matUrl').placeholder = '粘贴链接地址';
+  }
+}
+
+function handleMatFileSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (file.size > 20 * 1024 * 1024) { showToast('⚠️ 文件不能超过20MB'); return; }
+  document.getElementById('matFileName').textContent = '📎 ' + file.name + ' (' + (file.size/1024/1024).toFixed(1) + 'MB)';
+  document.getElementById('matFileDropZone').style.borderColor = 'var(--accent-pink)';
+  const reader = new FileReader();
+  reader.onload = function() {
+    window._matFileData = reader.result;
+    window._matFileName = file.name;
+  };
+  reader.readAsDataURL(file);
+}
+
+function handleMatFileDrop(event) {
+  const file = event.dataTransfer.files[0];
+  if (!file) return;
+  if (file.size > 20 * 1024 * 1024) { showToast('⚠️ 文件不能超过20MB'); return; }
+  document.getElementById('matFileName').textContent = '📎 ' + file.name + ' (' + (file.size/1024/1024).toFixed(1) + 'MB)';
+  document.getElementById('matFileDropZone').style.borderColor = 'var(--accent-pink)';
+  const reader = new FileReader();
+  reader.onload = function() {
+    window._matFileData = reader.result;
+    window._matFileName = file.name;
+  };
+  reader.readAsDataURL(file);
+}
+
 function addMaterial(category) {
   const title = document.getElementById('matTitle').value;
   if (!title) return alert('请输入标题');
+  const type = document.getElementById('matType').value;
+  let url = document.getElementById('matUrl')?.value || '';
+  let fileData = null;
+  let fileName = '';
+  // 本地文件：使用 base64 data URL
+  if (type === '本地文件') {
+    if (!window._matFileData) return alert('请选择要上传的文件');
+    url = window._matFileData; // base64 data URL
+    fileData = window._matFileData;
+    fileName = window._matFileName;
+  }
   appData.materials.push({
     id:Date.now(), title, source:document.getElementById('matSource').value,
-    category:document.getElementById('matCat').value, type:document.getElementById('matType').value,
-    url:document.getElementById('matUrl').value, note:document.getElementById('matNote').value,
+    category:document.getElementById('matCat').value, type:type,
+    url:url,
+    extractionCode: type==='网盘资料链接' ? (document.getElementById('matCode')?.value || '') : '',
+    platform: type==='网盘资料链接' ? detectPlatform(url).platform : (type==='本地文件' ? 'local' : ''),
+    fileData: fileData,
+    fileName: fileName,
+    note:document.getElementById('matNote').value,
     tags:document.getElementById('matTags').value.split(',').map(t=>t.trim()).filter(t=>t),
     addDate:new Date().toISOString().split('T')[0], status:'unread'
   });
+  window._matFileData = null;
+  window._matFileName = '';
   saveData(); closeGenericModal(); renderMaterials(category);
 }
+
 function editMaterial(idx) {
   const m = appData.materials[idx];
   const cats = ['行测','申论','公专','真题','模考','时政','范文','其他'];
-  const types = ['习题链接','网页链接','网盘资料链接','PDF/文档链接','自定义备注'];
-  const html = `<div class="form-group"><label class="form-label">标题</label><input id="ematTitle" value="${m.title}"></div>
+  const types = ['网页链接','网盘资料链接','本地文件','PDF/文档链接','习题链接','自定义备注'];
+  const isLocal = m.type === '本地文件';
+  const html = `<div class="form-group"><label class="form-label">标题</label><input id="ematTitle" value="${(m.title||'').replace(/"/g,'&quot;')}"></div>
     <div class="form-group"><label class="form-label">分类</label><select id="ematCat">${cats.map(c=>`<option value="${c}" ${c===m.category?'selected':''}>${c}</option>`).join('')}</select></div>
+    <div class="form-group"><label class="form-label">类型</label><select id="ematType" onchange="onEditTypeChange()">${types.map(t=>`<option value="${t}" ${t===m.type?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div class="form-group" id="ematUrlGroup" style="${isLocal?'display:none':''}"><label class="form-label">链接地址</label><input id="ematUrl" value="${(m.url||'').replace(/"/g,'&quot;')}" placeholder="粘贴网盘分享链接或网页地址"></div>
+    <div class="form-group" id="ematCodeGroup" style="${m.type==='网盘资料链接'?'':'display:none'}"><label class="form-label">提取码</label><input id="ematCode" value="${(m.extractionCode||'').replace(/"/g,'&quot;')}" placeholder="网盘提取码"></div>
+    ${isLocal && m.fileName ? `<div class="form-group"><label class="form-label">已上传文件</label><div style="padding:8px;background:rgba(240,196,216,0.1);border-radius:8px;font-size:12px;color:var(--accent-pink)">📂 ${m.fileName}</div></div>` : ''}
+    <div class="form-group"><label class="form-label">备注</label><input id="ematNote" value="${(m.note||'').replace(/"/g,'&quot;')}"></div>
     <div class="form-group"><label class="form-label">状态</label><select id="ematStatus"><option value="unread" ${m.status==='unread'?'selected':''}>未开始</option><option value="reading" ${m.status==='reading'?'selected':''}>学习中</option><option value="done" ${m.status==='done'?'selected':''}>已完成</option></select></div>
     <button class="btn-primary" style="width:100%" onclick="updateMaterial(${idx})">更新</button>`;
   showModal('编辑资料', html);
 }
+
+function onEditTypeChange() {
+  const type = document.getElementById('ematType')?.value || '';
+  const codeGroup = document.getElementById('ematCodeGroup');
+  if (codeGroup) codeGroup.style.display = type === '网盘资料链接' ? 'block' : 'none';
+}
+
 function updateMaterial(idx) {
-  appData.materials[idx].title = document.getElementById('ematTitle').value;
+  appData.materials[idx].title = document.getElementById('ematTitle').value || appData.materials[idx].title;
   appData.materials[idx].category = document.getElementById('ematCat').value;
+  appData.materials[idx].type = document.getElementById('ematType').value;
+  appData.materials[idx].url = document.getElementById('ematUrl').value;
+  appData.materials[idx].extractionCode = document.getElementById('ematCode')?.value || '';
+  appData.materials[idx].note = document.getElementById('ematNote').value;
   appData.materials[idx].status = document.getElementById('ematStatus').value;
   saveData(); closeGenericModal(); renderMaterials(appData.materials[idx].category);
 }
@@ -2155,10 +2360,19 @@ function importToPanel(side) {
 function importLink(side) {
   closeGenericModal();
   const label = side==='left' ? '左框（试题区）' : '右框（答案区）';
-  const url = prompt(`请输入要导入到${label}的链接（支持网页/PDF/网盘分享链接）:`);
+  const url = prompt('请输入链接地址（支持网页/PDF/网盘分享链接）:');
   if (!url) return;
+  // 网盘链接：询问提取码
+  let finalUrl = url;
+  if (url.includes('pan.baidu.com') || url.includes('share.weiyun.com') || url.includes('aliyundrive.com')) {
+    const code = prompt('🔑 如果有提取码请输入（没有请点取消）:');
+    if (code) {
+      if (finalUrl.includes('?')) finalUrl += '&pwd=' + code;
+      else finalUrl += '?pwd=' + code;
+    }
+  }
   const title = prompt('请输入标题（可选）:', '') || '导入内容';
-  appData.compareData[side] = { type:'iframe', url:url, title:title, content:url };
+  appData.compareData[side] = { type:'iframe', url:finalUrl, title:title, content:finalUrl };
   saveData(); renderComparePanel(side);
 }
 
