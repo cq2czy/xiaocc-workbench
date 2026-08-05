@@ -2319,7 +2319,15 @@ function renderComparePanel(side) {
   const type = data.type;
   let inner = '';
 
-  if (type === 'iframe' && data.url) {
+  if (type === 'baidu' && data.url) {
+    inner = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:24px;text-align:center;">
+      <div style="font-size:48px;margin-bottom:12px;">☁️</div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:4px;">${escapeHtml(data.title||'百度网盘资料')}</div>
+      ${data.extractionCode ? `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:12px;">🔑 提取码已自动填入：${data.extractionCode}</div>` : '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:12px;">无需提取码</div>'}
+      <button class="btn-primary" onclick="openBaiduDisk('${side}')" style="font-size:14px;padding:10px 24px;">☁️ 打开百度网盘</button>
+      <div style="font-size:10px;color:var(--text-secondary);margin-top:8px;">点击后将跳转到百度网盘查看文件</div>
+    </div>`;
+  } else if (type === 'iframe' && data.url) {
     // Check if URL is embeddable
     inner = `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:8px;">📎 ${data.title||'加载中'}</div>`;
     // Try iframe for PDFs and same-origin
@@ -2349,7 +2357,8 @@ function importToPanel(side) {
   html += '<p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">请选择导入方式</p>';
 
   html += '<div style="display:flex;flex-direction:column;gap:8px;">';
-  html += `<button class="btn accent-pink btn-sm" onclick="importLink('${side}')" style="width:100%;">🔗 粘贴网页/网盘/PDF链接</button>`;
+  html += `<button class="btn accent-pink btn-sm" onclick="importBaiduDisk('${side}')" style="width:100%;">☁️ 导入百度网盘文件</button>`;
+  html += `<button class="btn accent-pink btn-sm" onclick="importLink('${side}')" style="width:100%;">🔗 粘贴其他网页/PDF链接</button>`;
   html += `<button class="btn accent-pink btn-sm" onclick="importText('${side}')" style="width:100%;">📝 粘贴文本内容</button>`;
   html += `<button class="btn accent-pink btn-sm" onclick="importImage('${side}')" style="width:100%;">🖼️ 粘贴图片地址</button>`;
   html += '</div>';
@@ -2357,12 +2366,44 @@ function importToPanel(side) {
   showModal(html);
 }
 
+function importBaiduDisk(side) {
+  closeGenericModal();
+  const label = side==='left' ? '左框（试题区）' : '右框（答案区）';
+  const html = `<div style="padding:8px;">
+    <div class="form-group"><label class="form-label">📝 标题</label><input id="bdTitle" placeholder="如：2026湖北省考行测真题解析"></div>
+    <div class="form-group"><label class="form-label">☁️ 百度网盘分享链接</label><input id="bdUrl" placeholder="粘贴百度网盘分享链接（如 https://pan.baidu.com/s/xxxx）"></div>
+    <div class="form-group"><label class="form-label">🔑 提取码（选填）</label><input id="bdCode" placeholder="如：abcd"></div>
+    <div style="font-size:11px;color:var(--text-secondary);margin-bottom:10px;">💡 打开时自动拼接提取码，直接跳转到网盘文件页面</div>
+    <button class="btn-primary" style="width:100%" onclick="confirmBaiduDisk('${side}')">☁️ 保存并导入</button>
+  </div>`;
+  showModal(`导入百度网盘到${label}`, html);
+}
+function confirmBaiduDisk(side) {
+  const title = document.getElementById('bdTitle')?.value?.trim() || '百度网盘资料';
+  const url = document.getElementById('bdUrl')?.value?.trim();
+  if (!url) return showToast('⚠️ 请粘贴百度网盘分享链接');
+  let finalUrl = url;
+  const code = document.getElementById('bdCode')?.value?.trim();
+  if (code) {
+    if (finalUrl.includes('?')) finalUrl += '&pwd=' + code;
+    else finalUrl += '?pwd=' + code;
+  }
+  appData.compareData[side] = { type:'baidu', url:finalUrl, title:title, content:finalUrl, extractionCode:code||'' };
+  saveData(); closeGenericModal(); renderComparePanel(side);
+  showToast('☁️ 百度网盘资料已导入！');
+}
+
+function openBaiduDisk(side) {
+  const data = appData.compareData[side];
+  if (!data || !data.url) return showToast('⚠️ 没有可跳转的链接');
+  window.open(data.url, '_blank');
+}
+
 function importLink(side) {
   closeGenericModal();
   const label = side==='left' ? '左框（试题区）' : '右框（答案区）';
   const url = prompt('请输入链接地址（支持网页/PDF/网盘分享链接）:');
   if (!url) return;
-  // 网盘链接：询问提取码
   let finalUrl = url;
   if (url.includes('pan.baidu.com') || url.includes('share.weiyun.com') || url.includes('aliyundrive.com')) {
     const code = prompt('🔑 如果有提取码请输入（没有请点取消）:');
