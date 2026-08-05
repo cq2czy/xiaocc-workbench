@@ -777,11 +777,75 @@
 <script>
 // ================== 数据存储 ==================
 const STORAGE_KEY = 'xiaocc_workbench_v1';
+
+// ================== IndexedDB 大文件存储 ==================
+let fileDB = null;
+function openFileDB() {
+  return new Promise((resolve, reject) => {
+    if (fileDB) return resolve(fileDB);
+    const req = indexedDB.open('XiaoccFiles', 1);
+    req.onupgradeneeded = function(e) {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('files')) {
+        db.createObjectStore('files', { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = function(e) { fileDB = e.target.result; resolve(fileDB); };
+    req.onerror = function(e) { console.error('IndexedDB 打开失败', e); reject(e); };
+  });
+}
+async function saveFileToDB(id, blob, filename, filetype) {
+  try {
+    const db = await openFileDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('files', 'readwrite');
+      tx.objectStore('files').put({ id, blob, filename, filetype, ts: Date.now() });
+      tx.oncomplete = resolve;
+      tx.onerror = reject;
+    });
+  } catch(e) { console.error('saveFileToDB 失败', e); }
+}
+async function loadFileFromDB(id) {
+  try {
+    const db = await openFileDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('files', 'readonly');
+      const req = tx.objectStore('files').get(id);
+      req.onsuccess = function() { resolve(req.result); };
+      req.onerror = reject;
+    });
+  } catch(e) { console.error('loadFileFromDB 失败', e); return null; }
+}
+async function deleteFileFromDB(id) {
+  try {
+    const db = await openFileDB();
+    return new Promise((resolve) => {
+      const tx = db.transaction('files', 'readwrite');
+      tx.objectStore('files').delete(id);
+      tx.oncomplete = resolve;
+      tx.onerror = resolve;
+    });
+  } catch(e) { /* ignore */ }
+}
+// 启动时恢复所有本地文件的 blob URL
+async function restoreAllBlobURLs() {
+  if (!appData.compareData) return;
+  for (const side of ['left', 'right']) {
+    const item = appData.compareData[side];
+    if (item && item.type && item.type.startsWith('local') && item.fileDbId) {
+      const dbFile = await loadFileFromDB(item.fileDbId);
+      if (dbFile && dbFile.blob) {
+        const url = URL.createObjectURL(dbFile.blob);
+        item.content = url;
+      }
+    }
+  }
+}
+
 function loadData() {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (raw) {
     const data = JSON.parse(raw);
-    // 合并缺失的默认字段
     const def = getDefaultData();
     const topKeys = ['avatar','countdownLabel','countdownType','countdownTarget','countdownDayStart','status',
       'tasks','habits','quotes','quoteIndex','politics','plan','ccNotes','ccNotesActiveTab','ccNotesXingceSub',
@@ -800,6 +864,23 @@ function loadData() {
       }
     }
     if (!data.compareData) data.compareData = def.compareData;
+    // 清理试题对照的旧 iframe+网盘数据（强制显示为空面板）
+    if (data.compareData) {
+      ['left','right'].forEach(side => {
+        const item = data.compareData[side];
+        if (item && item.type === 'iframe' && item.url) {
+          const url = item.url.toString().toLowerCase();
+          if (url.includes('pan.baidu.com') || url.includes('share.weiyun.com') || url.includes('aliyundrive.com') || url.includes('quark.cn')) {
+            item.type = 'baidu';
+            item.extractionCode = item.extractionCode || '';
+          }
+        }
+        // 修复缺协议头的 URL
+        if (item && item.url && !item.url.toString().match(/^https?:\/\//) && !item.url.toString().startsWith('data:') && !item.url.toString().startsWith('blob:')) {
+          item.url = 'https://' + item.url;
+        }
+      });
+    }
     if (!data.politics) data.politics = def.politics;
     if (!data.xingce) data.xingce = def.xingce;
     if (!data.shenlun) data.shenlun = def.shenlun;
@@ -812,23 +893,6 @@ function loadData() {
     if (!data.habits) data.habits = def.habits;
     if (!data.quotes) data.quotes = def.quotes;
     if (typeof data.quoteIndex !== 'number') data.quoteIndex = def.quoteIndex;
-    // 迁移：试题对照旧数据 iframe+网盘 转 baidu 类型
-    if (data.compareData) {
-      ['left','right'].forEach(side => {
-        const item = data.compareData[side];
-        if (item && item.type === 'iframe' && item.url) {
-          const url = item.url.toString().toLowerCase();
-          if (url.includes('pan.baidu.com') || url.includes('share.weiyun.com') || url.includes('aliyundrive.com') || url.includes('quark.cn')) {
-            item.type = 'baidu';
-            item.extractionCode = item.extractionCode || '';
-          }
-        }
-        // 修复缺协议头的 URL
-        if (item && item.url && !item.url.match(/^https?:\/\//)) {
-          item.url = 'https://' + item.url;
-        }
-      });
-    }
     return data;
   }
   return getDefaultData();
@@ -1892,14 +1956,29 @@ function openFinanceModal(type) {
   showModal(type==='income'?'记收入':'记支出', html);
 }
 function addFinance(type) {
-  const amount = parseFloat(document.getElementById('finAmount').value);
-  const desc = document.getElementById('finDesc').value.trim();
-  const category = document.getElementById('finCat').value.trim();
-  const date = document.getElementById('finDate').value;
-  if (!amount || amount <= 0 || !desc) return alert('请填写金额和说明');
-  appData.finance.push({id:Date.now(),type,amount,desc,category,date});
-  saveData(); closeGenericModal(); renderChuangye();
-  showToast(type==='income' ? '✅ 收入已记录' : '✅ 支出已记录');
+  try {
+    const amountEl = document.getElementById('finAmount');
+    const descEl = document.getElementById('finDesc');
+    const catEl = document.getElementById('finCat');
+    const dateEl = document.getElementById('finDate');
+    if (!amountEl || !descEl) { alert('表单数据丢失，请重新打开对话框'); return; }
+    const amount = parseFloat(amountEl.value);
+    const desc = (descEl.value || '').trim();
+    const category = (catEl ? catEl.value : '').trim();
+    const date = dateEl ? dateEl.value : new Date().toISOString().split('T')[0];
+    if (!amount || amount <= 0) { alert('请输入有效金额（大于0）'); return; }
+    if (!desc) { alert('请填写说明'); return; }
+    if (!Array.isArray(appData.finance)) appData.finance = [];
+    appData.finance.push({ id: Date.now(), type, amount, desc, category, date });
+    saveData();
+    closeGenericModal();
+    // 强制刷新整个创业模块
+    renderChuangye();
+    showToast(type === 'income' ? '✅ 收入已记录' : '✅ 支出已记录');
+  } catch(e) {
+    console.error('addFinance error:', e);
+    alert('记录失败，请刷新页面后重试');
+  }
 }
 function editFinance(idx) {
   const f = appData.finance[idx];
@@ -2407,13 +2486,16 @@ function renderComparePanel(side) {
       <div style="font-size:10px;color:var(--text-secondary);margin-top:8px;">点击后将跳转到百度网盘查看文件</div>
     </div>`;
   } else if (type === 'localPDF' && data.content) {
-    // PDF 文件：用 blob URL + iframe 内嵌浏览器PDF阅读器
-    inner = `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">📄 ${escapeHtml(data.title||'PDF文档')}</div>
-      <div style="font-size:10px;color:var(--text-secondary);margin-bottom:8px;">💡 可在工作台内直接查看PDF</div>
-      <iframe src="${data.content}" style="width:100%;height:calc(100% - 50px);border:none;border-radius:8px;background:#fff;"></iframe>`;
+    // PDF 内嵌预览：content 是 blob URL（来自 IndexedDB 恢复或直接上传）
+    inner = `<div style="height:100%;display:flex;flex-direction:column;">
+      <div style="font-size:12px;color:var(--text-secondary);padding-bottom:6px;flex-shrink:0;">📄 ${escapeHtml(data.title||'PDF文档')}</div>
+      <iframe src="${data.content}" style="flex:1;width:100%;border:none;border-radius:8px;background:#fff;min-height:300px;"></iframe>
+    </div>`;
   } else if (type === 'localImage' && data.content) {
-    inner = `<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px;">🖼️ ${escapeHtml(data.title||'图片')}</div>
-      <img src="${data.content}" alt="${escapeHtml(data.title||'')}" style="max-width:100%;max-height:100%;border-radius:8px;object-fit:contain;">`;
+    inner = `<div style="height:100%;overflow:auto;">
+      <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">🖼️ ${escapeHtml(data.title||'图片')}</div>
+      <img src="${data.content}" alt="${escapeHtml(data.title||'')}" style="max-width:100%;max-height:calc(100% - 30px);border-radius:8px;object-fit:contain;">
+    </div>`;
   } else if (type === 'localText' && data.content) {
     // 文本文件：解码 base64
     let textContent = '';
@@ -2478,9 +2560,10 @@ function importToPanel(side) {
   html += '<p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">请选择导入方式</p>';
 
   html += '<div style="display:flex;flex-direction:column;gap:8px;">';
-  html += `<button class="btn accent-pink btn-sm" onclick="importBaiduDisk('${side}')" style="width:100%;">☁️ 导入百度网盘链接</button>`;
-  html += `<button class="btn accent-pink btn-sm" onclick="triggerFileUpload('${side}')" style="width:100%;">📂 上传本地PDF/文档（直接查看）</button>`;
-  html += `<input type="file" id="compareFileInput_${side}" accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.gif" style="display:none" onchange="importLocalFile('${side}', this)">`;
+  html += `<button class="btn accent-pink btn-sm" onclick="triggerFileUpload('${side}')" style="width:100%;">📂 上传本地PDF/文档（直接查看★推荐）</button>`;
+  html += `<div style="font-size:10px;color:var(--text-secondary);margin:-4px 0 4px;">从百度网盘下载文件后，在这里上传即可直接查看</div>`;
+  html += `<input type="file" id="compareFileInput_${side}" accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.gif,.ppt,.pptx,.xls,.xlsx" style="display:none" onchange="importLocalFile('${side}', this)">`;
+  html += `<button class="btn accent-pink btn-sm" onclick="importBaiduDisk('${side}')" style="width:100%;">☁️ 导入百度网盘链接（仅存链接+跳转）</button>`;
   html += `<button class="btn accent-pink btn-sm" onclick="importLink('${side}')" style="width:100%;">🔗 粘贴网页链接</button>`;
   html += `<button class="btn accent-pink btn-sm" onclick="importText('${side}')" style="width:100%;">📝 粘贴文本内容</button>`;
   html += `<button class="btn accent-pink btn-sm" onclick="importImage('${side}')" style="width:100%;">🖼️ 粘贴图片地址</button>`;
@@ -2494,38 +2577,44 @@ function triggerFileUpload(side) {
   document.getElementById('compareFileInput_' + side).click();
 }
 
-function importLocalFile(side, input) {
+async function importLocalFile(side, input) {
   const file = input.files[0];
   if (!file) { input.value = ''; return; }
-  // 检查文件大小（限制 20MB）
-  if (file.size > 20 * 1024 * 1024) {
-    alert('⚠️ 文件过大，请选择 20MB 以内的文件');
+  if (file.size > 50 * 1024 * 1024) {
+    alert('⚠️ 文件过大，请选择 50MB 以内的文件');
     input.value = '';
     return;
   }
-  showToast('📤 正在读取文件...');
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const base64 = e.target.result;
-    const fileName = file.name;
+  showToast('📤 正在导入文件...');
+  try {
+    const blob = new Blob([file], { type: file.type });
+    const blobUrl = URL.createObjectURL(blob);
+    const fileDbId = 'compare_' + side + '_' + Date.now();
     const fileType = file.type;
-    // 判断文件类型
     let displayType = 'localFile';
     if (fileType.startsWith('image/')) displayType = 'localImage';
     else if (fileType === 'application/pdf') displayType = 'localPDF';
     else if (fileType.includes('text/') || file.name.endsWith('.txt')) displayType = 'localText';
+
+    // 保存到 IndexedDB
+    await saveFileToDB(fileDbId, blob, file.name, fileType);
+
     appData.compareData[side] = {
       type: displayType,
-      url: base64,
-      title: fileName,
-      content: base64,
-      fileName: fileName,
-      fileType: fileType
+      title: file.name,
+      content: blobUrl,
+      url: blobUrl,
+      fileName: file.name,
+      fileType: fileType,
+      fileDbId: fileDbId
     };
-    saveData(); renderComparePanel(side);
+    saveData();
+    renderComparePanel(side);
     showToast('✅ 文件已导入，可直接查看！');
-  };
-  reader.readAsDataURL(file);
+  } catch(e) {
+    console.error('importLocalFile error:', e);
+    showToast('⚠️ 文件导入失败，请重试');
+  }
   input.value = '';
 }
 
@@ -2610,6 +2699,15 @@ function importImage(side) {
 function clearPanel(side) {
   const label = side==='left' ? '左框（试题区）' : '右框（答案区）';
   if (!confirm(`确认清空${label}的内容？`)) return;
+  const oldData = appData.compareData[side];
+  // 清理 IndexedDB 中的文件
+  if (oldData && oldData.fileDbId) {
+    deleteFileFromDB(oldData.fileDbId);
+  }
+  // 释放 blob URL
+  if (oldData && oldData.content && oldData.content.startsWith('blob:')) {
+    URL.revokeObjectURL(oldData.content);
+  }
   appData.compareData[side] = null;
   saveData(); renderComparePanel(side);
 }
@@ -2918,7 +3016,9 @@ function escapeAttr(str) {
 }
 
 // ================== 初始化 ==================
-function init() {
+async function init() {
+  // 从 IndexedDB 恢复所有文件的 blob URL
+  await restoreAllBlobURLs();
   renderTasks();
   renderPolitics();
   renderPeriod();
@@ -2928,7 +3028,7 @@ function init() {
 }
 init();
 
-// 注册 Service Worker（PWA 打包 APK 必需）
+// Service Worker（PWA）
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
